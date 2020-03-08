@@ -139,6 +139,7 @@ void *(**On*Event);
 -keep class com.alipay.hulu.common.utils.ClassUtil$PatchVersionInfo { *; }
 -keep class com.alipay.hulu.common.utils.patch.PatchDescription {*;}
 
+-keep class com.alipay.hulu.common.utils.DeviceInfoUtil {*;}
 
 #内部方法
 -keepattributes EnclosingMethod
@@ -158,11 +159,6 @@ void *(**On*Event);
 # OkHttp platform used only on JVM and when Conscrypt dependency is available.
 -dontwarn okhttp3.internal.platform.ConscryptPlatform
 
-#eventbus
--keepclassmembers class ** {
-@org.greenrobot.eventbus.Subscribe <methods>;
-}
-
 # injector
 -keepclassmembers class ** {
 @com.alipay.hulu.common.injector.param.Subscriber <methods>;
@@ -181,6 +177,16 @@ void *(**On*Event);
 #PrepareWorker
 -keep interface com.alipay.hulu.shared.node.utils.prepare.PrepareWorker { *; }
 -keep @com.alipay.hulu.shared.node.utils.prepare.PrepareWorker$PrepareTool class * implements com.alipay.hulu.shared.node.utils.prepare.PrepareWorker { *; }
+
+# SchemeResolver
+-keep interface com.alipay.hulu.common.scheme.SchemeActionResolver { *; }
+-keep @com.alipay.hulu.common.scheme.SchemeResolver class * implements com.alipay.hulu.common.scheme.SchemeActionResolver { *; }
+
+#Github Replease
+-keep class com.alipay.hulu.bean.GithubReleaseBean { *; }
+-keep class com.alipay.hulu.bean.GithubReleaseBean$AuthorBean { *; }
+-keep class com.alipay.hulu.bean.GithubReleaseBean$AssetsBean { *; }
+-keep class com.alipay.hulu.bean.GithubReleaseBean$AssetsBean$UploaderBean { *; }
 
 # 三方库
 -keep class com.cgutman.adblib.** {*;}
@@ -227,7 +233,9 @@ public static java.lang.String TABLENAME;
   public *;
 }
 
--keep class ** implements com.alipay.hulu.shared.display.items.base.Displayable {*;}
+-keep class ** implements com.alipay.hulu.shared.display.items.base.Displayable {
+public void clear();
+}
 
 -keep interface com.alipay.hulu.common.service.base.ExportService { *; }
 -keep @interface com.alipay.hulu.common.service.base.LocalService {*;}
@@ -238,19 +246,18 @@ public com.alipay.hulu.common.utils.patch.PatchContext getContext();
 
 -keep interface ** extends com.alipay.hulu.common.service.base.ExportService { *; }
 
--keep enum org.greenrobot.eventbus.ThreadMode { *; }
-# Only required if you use AsyncExecutor
--keepclassmembers class * extends org.greenrobot.eventbus.util.ThrowableFailureEvent {
-<init>(java.lang.Throwable);
-}
-
 -dontwarn android.support.v4.**
 -keep class android.support.** {*;}
 -keepattributes Exceptions,InnerClasses,Signature
-#视频直播混淆
+
 #fastjson
 -dontwarn com.alibaba.fastjson.**
 -keep class com.alibaba.fastjson.** { *; }
+
+# 性能数据上报混淆
+-keep class com.alipay.hulu.util.RecordUtil$RecordUploadData { *; }
+-keep class com.alipay.hulu.util.RecordUtil$UploadData { *; }
+
 # fresco
 -dontwarn javax.annotation.**
 #保留混淆mapping文件

@@ -16,12 +16,18 @@
 package com.alipay.hulu.common.utils.activity;
 
 import android.Manifest;
+import android.accessibilityservice.AccessibilityService;
+import android.annotation.TargetApi;
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.LocaleList;
 import android.provider.Settings;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
@@ -44,17 +50,23 @@ import com.alipay.hulu.common.injector.param.SubscribeParamEnum;
 import com.alipay.hulu.common.service.SPService;
 import com.alipay.hulu.common.tools.BackgroundExecutor;
 import com.alipay.hulu.common.tools.CmdTools;
+import com.alipay.hulu.common.utils.Callback;
 import com.alipay.hulu.common.utils.ContextUtil;
 import com.alipay.hulu.common.utils.LogUtil;
 import com.alipay.hulu.common.utils.PermissionUtil;
 import com.alipay.hulu.common.utils.StringUtil;
 import com.android.permission.FloatWindowManager;
+import com.android.permission.rom.MiuiUtils;
+import com.android.permission.rom.RomUtils;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Created by qiaoruikai on 2018/10/15 5:20 PM.
@@ -76,6 +88,7 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
     public static final int PERMISSION_RECORD = 7;
     public static final int PERMISSION_ANDROID = 8;
     public static final int PERMISSION_DYNAMIC = 9;
+    public static final int PERMISSION_BACKGROUND = 10;
 
     public static volatile boolean runningStatus = false;
 
@@ -106,31 +119,31 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
     /**
      * 权限名称映射表
      */
-    public static final Map<String, String> PERMISSION_NAMES = new HashMap<String, String>() {
+    public static Map<String, Integer> PERMISSION_NAMES = new HashMap<String, Integer>() {
         {
-            put(Manifest.permission.READ_CALENDAR, "读取日历");
-            put(Manifest.permission.WRITE_CALENDAR, "写入日历");
-            put(Manifest.permission.CAMERA, "相机");
-            put(Manifest.permission.READ_CONTACTS, "读取联系人");
-            put(Manifest.permission.WRITE_CONTACTS, "写入联系人");
-            put(Manifest.permission.GET_ACCOUNTS, "获取账户");
-            put(Manifest.permission.ACCESS_FINE_LOCATION, "获取精确定位");
-            put(Manifest.permission.ACCESS_COARSE_LOCATION, "获取粗略定位");
-            put(Manifest.permission.RECORD_AUDIO, "录音");
-            put(Manifest.permission.READ_PHONE_STATE, "读取电话状态");
-            put(Manifest.permission.CALL_PHONE, "拨打电话");
-            put(Manifest.permission.READ_CALL_LOG, "读取通话记录");
-            put(Manifest.permission.WRITE_CALL_LOG, "写入通话记录");
-            put(Manifest.permission.ADD_VOICEMAIL, "添加语音邮箱");
-            put(Manifest.permission.USE_SIP, "使用SIP");
-            put(Manifest.permission.BODY_SENSORS, "获取传感器数据");
-            put(Manifest.permission.SEND_SMS, "发送短信");
-            put(Manifest.permission.RECEIVE_SMS, "接收短信");
-            put(Manifest.permission.READ_SMS, "获取短信信息");
-            put(Manifest.permission.RECEIVE_WAP_PUSH, "接收Wap Push");
-            put(Manifest.permission.RECEIVE_MMS, "接收MMS");
-            put(Manifest.permission.READ_EXTERNAL_STORAGE, "读取外部存储");
-            put(Manifest.permission.WRITE_EXTERNAL_STORAGE, "写入外部存储");
+            put(Manifest.permission.READ_CALENDAR, R.string.permission__read_calendar);
+            put(Manifest.permission.WRITE_CALENDAR, R.string.permission__write_calendar);
+            put(Manifest.permission.CAMERA, R.string.permission__camera);
+            put(Manifest.permission.READ_CONTACTS, R.string.permission__read_contacts);
+            put(Manifest.permission.WRITE_CONTACTS, R.string.permission__write_contacts);
+            put(Manifest.permission.GET_ACCOUNTS, R.string.permission__get_accounts);
+            put(Manifest.permission.ACCESS_FINE_LOCATION, R.string.permission__access_fine_location);
+            put(Manifest.permission.ACCESS_COARSE_LOCATION, R.string.permission__access_coarse_location);
+            put(Manifest.permission.RECORD_AUDIO, R.string.permission__record_audio);
+            put(Manifest.permission.READ_PHONE_STATE, R.string.permission__read_phone_state);
+            put(Manifest.permission.CALL_PHONE, R.string.permission__call_phone);
+            put(Manifest.permission.READ_CALL_LOG, R.string.permission__read_call_log);
+            put(Manifest.permission.WRITE_CALL_LOG, R.string.permission__write_call_log);
+            put(Manifest.permission.ADD_VOICEMAIL, R.string.permission__add_voicemail);
+            put(Manifest.permission.USE_SIP, R.string.permission__use_sip);
+            put(Manifest.permission.BODY_SENSORS, R.string.permission__body_sensors);
+            put(Manifest.permission.SEND_SMS, R.string.permission__send_sms);
+            put(Manifest.permission.RECEIVE_SMS, R.string.permission__receive_sms);
+            put(Manifest.permission.READ_SMS, R.string.permission__read_sms);
+            put(Manifest.permission.RECEIVE_WAP_PUSH, R.string.permission__receive_wap_push);
+            put(Manifest.permission.RECEIVE_MMS, R.string.permission__receive_mms);
+            put(Manifest.permission.READ_EXTERNAL_STORAGE, R.string.permission__read_external_storage);
+            put(Manifest.permission.WRITE_EXTERNAL_STORAGE, R.string.permission__write_external_storage);
 
         }
     };
@@ -168,10 +181,15 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
 
     @Override
     public void finish() {
-        // 都是手工调finish结束的，所以通过finish判断
+        runningStatus = false;
+        super.finish();
+    }
+
+    @Override
+    protected void onDestroy() {
         runningStatus = false;
         LogUtil.i(TAG, "权限弹窗Stop");
-        super.finish();
+        super.onDestroy();
     }
 
     /**
@@ -229,6 +247,9 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
                 case "screenRecord":
                     group = PERMISSION_RECORD;
                     break;
+                case "background":
+                    group = PERMISSION_BACKGROUND;
+                    break;
                 default:
                     if (permission.startsWith("Android=")) {
                         group = PERMISSION_ANDROID;
@@ -259,7 +280,7 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
      */
     public void processPermission() {
         if (allPermissions == null || allPermissions.size() == 0) {
-            showAction(StringUtil.getString(R.string.permission_list_error), "确定", new Runnable() {
+            showAction(StringUtil.getString(R.string.permission_list_error), getString(R.string.constant__confirm), new Runnable() {
                 @Override
                 public void run() {
                     finish();
@@ -330,6 +351,11 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
                     return;
                 }
                 break;
+            case PERMISSION_BACKGROUND:
+                if (!processBackgroundPermission()) {
+                    return;
+                }
+                break;
         }
 
         // 成功的直接processed
@@ -342,16 +368,16 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
      */
     private boolean processFloatPermission() {
         if (!FloatWindowManager.getInstance().checkPermission(this)) {
-            showAction(StringUtil.getString(R.string.float_permission), "我已授权", new Runnable() {
+            showAction(StringUtil.getString(R.string.float_permission), getString(R.string.permission__i_grant), new Runnable() {
                 @Override
                 public void run() {
                     if (FloatWindowManager.getInstance().checkPermission(PermissionDialogActivity.this)) {
                         processedAction();
                     } else {
-                        Toast.makeText(PermissionDialogActivity.this, "悬浮窗权限未获取", Toast.LENGTH_SHORT).show();
+                        LauncherApplication.toast(R.string.permission__no_float_permission);
                     }
                 }
-            }, "确定", new Runnable() {
+            }, getString(R.string.constant__confirm), new Runnable() {
                 @Override
                 public void run() {
                     FloatWindowManager.getInstance().applyPermissionDirect(PermissionDialogActivity.this);
@@ -368,7 +394,7 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
      */
     private boolean processRootPermission() {
         if (!CmdTools.isRooted()) {
-            showAction(StringUtil.getString(R.string.root_permission), "确定", new Runnable() {
+            showAction(StringUtil.getString(R.string.root_permission), getString(R.string.constant__confirm), new Runnable() {
                 @Override
                 public void run() {
                     finish();
@@ -396,7 +422,7 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
                     status = CmdTools.isInitialized();
                 }
                 if (!status) {
-                    showAction(StringUtil.getString(R.string.adb_permission), "确定", new Runnable() {
+                    showAction(StringUtil.getString(R.string.adb_permission), getString(R.string.constant__confirm), new Runnable() {
                         @Override
                         public void run() {
                             SPService.putBoolean(PERMISSION_GRANT_ADB, true);
@@ -435,7 +461,7 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
                                 }
                             });
                         }
-                    }, "取消", new Runnable() {
+                    }, getString(R.string.constant__cancel), new Runnable() {
                         @Override
                         public void run() {
                             finish();
@@ -468,12 +494,12 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
         }
 
         if (!real.isEmpty()) {
-            showAction(StringUtil.join("\n", real), "我知道了", new Runnable() {
+            showAction(StringUtil.join("\n", real), getString(R.string.permission__i_know), new Runnable() {
                 @Override
                 public void run() {
                     processedAction();
                 }
-            }, "不再提示", new Runnable() {
+            }, getString(R.string.constant__no_inform), new Runnable() {
                 @Override
                 public void run() {
                     for (String p: real) {
@@ -493,16 +519,16 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
      */
     private boolean processUsagePermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT && !PermissionUtil.isUsageStatPermissionOn(this)) {
-            showAction(StringUtil.getString(R.string.device_usage_permission), "我已开启", new Runnable() {
+            showAction(StringUtil.getString(R.string.device_usage_permission), getString(R.string.permission__i_grant), new Runnable() {
                 @Override
                 public void run() {
                     if (PermissionUtil.isUsageStatPermissionOn(PermissionDialogActivity.this)) {
                         processedAction();
                     } else {
-                        Toast.makeText(PermissionDialogActivity.this, "校验失败", Toast.LENGTH_SHORT).show();
+                        LauncherApplication.toast(R.string.permission__valid_fail);
                     }
                 }
-            }, "确定", new Runnable() {
+            }, getString(R.string.constant__confirm), new Runnable() {
                 @Override
                 public void run() {
                     Intent intent = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
@@ -524,29 +550,76 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
 
         // 没有注册上AccessibilityService，需要开辅助功能
         if (service.getMessage(SubscribeParamEnum.ACCESSIBILITY_SERVICE, null) == null) {
-            showAction(StringUtil.getString(R.string.accessibility_permission), "我已开启", new Runnable() {
-                @Override
-                public void run() {
-                    if (service.getMessage(SubscribeParamEnum.ACCESSIBILITY_SERVICE, null) != null) {
-                        processedAction();
-                    } else {
-                        Toast.makeText(PermissionDialogActivity.this, "校验失败", Toast.LENGTH_SHORT).show();
+            if (SPService.getBoolean(SPService.KEY_SKIP_ACCESSIBILITY, true)) {
+                CmdTools.execHighPrivilegeCmd("settings put secure enabled_accessibility_services com.alipay.hulu/com.alipay.hulu.shared.event.accessibility.AccessibilityServiceImpl");
+                CmdTools.execHighPrivilegeCmd("settings put secure accessibility_enabled 1");
+                final CountDownLatch latch = new CountDownLatch(1);
+                InjectorService.g().waitForMessage(SubscribeParamEnum.ACCESSIBILITY_SERVICE, new Callback<AccessibilityService>() {
+                    @Override
+                    public void onResult(AccessibilityService item) {
+                        latch.countDown();
                     }
-                }
-            }, "确定", new Runnable() {
-                @Override
-                public void run() {
-                    Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK
-                            | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
-                    // | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                    startActivityForResult(intent, ACCESSIBILITY_REQUEST);
-                }
-            });
+
+                    @Override
+                    public void onFailed() {
+                        latch.countDown();
+                    }
+                });
+
+                BackgroundExecutor.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            latch.await(2000, TimeUnit.MILLISECONDS);
+                        } catch (InterruptedException e) {
+                            LogUtil.e(TAG, "Catch java.lang.InterruptedException: " + e.getMessage(), e);
+                        }
+                        LauncherApplication.getInstance().runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (service.getMessage(SubscribeParamEnum.ACCESSIBILITY_SERVICE, null) != null) {
+                                    processedAction();
+                                } else {
+                                    processAccessibilityByHand(service);
+                                }
+                            }
+                        });
+                    }
+                });
+            } else {
+                processAccessibilityByHand(service);
+            }
+
             return false;
         }
 
         return true;
+    }
+
+    /**
+     * 手动处理辅助功能问题
+     * @param service
+     */
+    private void processAccessibilityByHand(final InjectorService service) {
+        showAction(StringUtil.getString(R.string.accessibility_permission), getString(R.string.permission__i_grant), new Runnable() {
+            @Override
+            public void run() {
+                if (service.getMessage(SubscribeParamEnum.ACCESSIBILITY_SERVICE, null) != null) {
+                    processedAction();
+                } else {
+                    LauncherApplication.toast(R.string.permission__valid_fail);
+                }
+            }
+        }, getString(R.string.constant__confirm), new Runnable() {
+            @Override
+            public void run() {
+                Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK
+                        | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+                // | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                startActivityForResult(intent, ACCESSIBILITY_REQUEST);
+            }
+        });
     }
 
     /**
@@ -561,7 +634,7 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
         }
 
         if (Build.VERSION.SDK_INT < 21) {
-            showAction(StringUtil.getString(R.string.record_screen_android_version_error, Build.VERSION.SDK_INT), "确定", new Runnable() {
+            showAction(StringUtil.getString(R.string.record_screen_android_version_error, Build.VERSION.SDK_INT), getString(R.string.constant__confirm), new Runnable() {
                 @Override
                 public void run() {
                     SPService.putBoolean(PERMISSION_SKIP_RECORD, true);
@@ -581,17 +654,17 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
                 startActivityForResult(intent, MEDIA_PROJECTION_REQUEST);
             }
 
-            showAction(StringUtil.getString(R.string.record_screen_permission), "我已允许", new Runnable() {
+            showAction(StringUtil.getString(R.string.record_screen_permission), getString(R.string.permission__i_grant), new Runnable() {
                 @Override
                 public void run() {
                     if (injectorService.getMessage(Constant.EVENT_RECORD_SCREEN_CODE, Intent.class) != null) {
                         processedAction();
                         SPService.putBoolean(PERMISSION_GRANT_RECORD, true);
                     } else {
-                        Toast.makeText(PermissionDialogActivity.this, "未获取录屏信息", Toast.LENGTH_SHORT).show();
+                        LauncherApplication.toast(R.string.permission__no_record_info);
                     }
                 }
-            }, "确定", new Runnable() {
+            }, getString(R.string.constant__confirm), new Runnable() {
                 @Override
                 public void run() {
                     startActivityForResult(intent, MEDIA_PROJECTION_REQUEST);
@@ -621,7 +694,7 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
 
 
         if (Build.VERSION.SDK_INT < maxVersion) {
-            showAction(StringUtil.getString(R.string.android_version_error, maxVersion, Build.VERSION.SDK_INT), "确定", new Runnable() {
+            showAction(StringUtil.getString(R.string.android_version_error, maxVersion, Build.VERSION.SDK_INT), getString(R.string.constant__confirm), new Runnable() {
                 @Override
                 public void run() {
                     finish();
@@ -631,6 +704,32 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
             return false;
         }
 
+        return true;
+    }
+
+    /**
+     * 处理后台弹出界面权限
+     * @return
+     */
+    private boolean processBackgroundPermission() {
+        if (RomUtils.checkIsMiuiRom()) {
+            final String content = getString(R.string.permission__open_background_permission);
+            if (!SPService.getBoolean(content, false)) {
+                showAction(content, getString(R.string.permission__opened), new Runnable() {
+                    @Override
+                    public void run() {
+                        SPService.putBoolean(content, true);
+                        processedAction();
+                    }
+                }, getString(R.string.permission__go_to_open), new Runnable() {
+                    @Override
+                    public void run() {
+                        MiuiUtils.applyMiuiPermission(PermissionDialogActivity.this);
+                    }
+                });
+                return false;
+            }
+        }
         return true;
     }
 
@@ -658,9 +757,9 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
             if (ungrantedPermissions != null && ungrantedPermissions.size() > 0) {
                 List<String> mappedName = new ArrayList<>();
                 for (String dynPermission: ungrantedPermissions) {
-                    String mapName = PERMISSION_NAMES.get(dynPermission);
+                    Integer mapName = PERMISSION_NAMES.get(dynPermission);
                     if (mapName != null) {
-                        mappedName.add(mapName);
+                        mappedName.add(StringUtil.getString(mapName));
                     } else {
                         mappedName.add(dynPermission);
                     }
@@ -668,12 +767,12 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
 
                 String permissionNames = StringUtil.join("、", mappedName);
 
-                showAction(StringUtil.getString(R.string.request_dynamic_permission, permissionNames, ungrantedPermissions.size()), "确定", new Runnable() {
+                showAction(StringUtil.getString(R.string.request_dynamic_permission, permissionNames, ungrantedPermissions.size()), getString(R.string.constant__confirm), new Runnable() {
                     @Override
                     public void run() {
                         ActivityCompat.requestPermissions(PermissionDialogActivity.this, ungrantedPermissions.toArray(new String[0]), M_PERMISSION_REQUEST);
                     }
-                }, "取消", new Runnable() {
+                }, getString(R.string.constant__cancel), new Runnable() {
                     @Override
                     public void run() {
                         LogUtil.i(TAG, "用户取消授权");
@@ -803,6 +902,27 @@ public class PermissionDialogActivity extends Activity implements View.OnClickLi
 
             processedAction();
         }
+    }
+
+
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            newBase = updateResources(newBase);
+        }
+        super.attachBaseContext(newBase);
+    }
+
+    @TargetApi(Build.VERSION_CODES.N)
+    private static Context updateResources(Context context) {
+
+        Resources resources = context.getResources();
+        Locale locale = LauncherApplication.getInstance().getLanguageLocale();
+
+        Configuration configuration = resources.getConfiguration();
+        configuration.setLocale(locale);
+        configuration.setLocales(new LocaleList(locale));
+        return context.createConfigurationContext(configuration);
     }
 
     /**

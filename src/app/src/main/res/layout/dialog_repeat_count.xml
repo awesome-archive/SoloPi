@@ -29,7 +29,7 @@
         android:textColorHighlight="@color/colorAccent"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="重复次数"
+        android:hint="@string/repeat__repeat_count"
         android:textSize="18sp" />
 
     <CheckBox
@@ -40,7 +40,7 @@
         android:layout_marginRight="20dp"
         android:layout_marginTop="5dp"
         android:layout_marginBottom="5dp"
-        android:text="执行前重启应用"
+        android:text="@string/repeat__restart_before_exec"
         android:checked="true"
         android:layout_gravity="right"/>
 

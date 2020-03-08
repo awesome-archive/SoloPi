@@ -24,6 +24,7 @@ import android.os.Looper;
 import android.support.annotation.IntRange;
 import android.util.Base64;
 
+import com.alipay.hulu.common.R;
 import com.alipay.hulu.common.application.LauncherApplication;
 import com.alipay.hulu.common.bean.ProcessInfo;
 import com.alipay.hulu.common.injector.InjectorService;
@@ -240,6 +241,9 @@ public class CmdTools {
      * @returnz
      */
     public static boolean isRooted(){
+        if (true) {
+            return false;
+        }
         boolean bool = false;
 
         // 避免重复查找文件
@@ -429,6 +433,15 @@ public class CmdTools {
             LogUtil.e(TAG, "Throw Exception: " + e.getMessage(), e);
             return "";
         }
+    }
+
+    /**
+     * 执行点击操作
+     * @param x
+     * @param y
+     */
+    public static void execClick(int x, int y) {
+        execAdbCmd("input tap " + x + " " + y, 0);
     }
 
     /**
@@ -712,7 +725,7 @@ public class CmdTools {
             if (ERROR_NO_CONNECTION.equals(result) || ERROR_CONNECTION_ILLEGAL_STATE.equals(result)) {
                 generateConnection();
                 MiscUtil.sleep(2000);
-            } else if (ERROR_CONNECTION_COMMON_EXCEPTION.equals("result")) {
+            } else if (ERROR_CONNECTION_COMMON_EXCEPTION.equals(result)) {
                 MiscUtil.sleep(2000);
             } else {
                 break;
@@ -1202,6 +1215,45 @@ public class CmdTools {
     }
 
     /**
+     * 切换到输入法
+     * @param ime
+     */
+    public static void switchToIme(final String ime) {
+        // 主线程的话走Callable
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            Callable<Boolean> callable = new Callable<Boolean>() {
+                @Override
+                public Boolean call() {
+                    _switchToIme(ime);
+                    return true;
+                }
+            };
+            Future<Boolean> result = cachedExecutor.submit(callable);
+
+            // 等待执行完毕
+            try {
+                result.get();
+            } catch (InterruptedException e) {
+                LogUtil.e(TAG, "Catch java.lang.InterruptedException: " + e.getMessage(), e);
+            } catch (ExecutionException e) {
+                LogUtil.e(TAG, "Catch java.util.concurrent.ExecutionException: " + e.getMessage(), e);
+            }
+            return;
+        }
+        _switchToIme(ime);
+    }
+
+    /**
+     * 真正切换输入法
+     * @param ime
+     */
+    private static void _switchToIme(String ime) {
+        execHighPrivilegeCmd("ime enable " + ime);
+        execHighPrivilegeCmd("ime set " + ime);
+    }
+
+
+    /**
      * 判断文件是否存在
      * @param file shell中文件路径
      * @return
@@ -1280,27 +1332,27 @@ public class CmdTools {
                                 break;
                             }
                         }
-                    }
 
-                    // 恢复失败
-                    if (!genResult) {
-                        Context con = LauncherApplication.getInstance().loadActivityOnTop();
-                        if (con == null) {
-                            con = LauncherApplication.getInstance().loadRunningService();
-                        }
+                        // 恢复失败
+                        if (!genResult) {
+                            Context con = LauncherApplication.getInstance().loadActivityOnTop();
+                            if (con == null) {
+                                con = LauncherApplication.getInstance().loadRunningService();
+                            }
 
-                        if (con == null) {
-                            LauncherApplication.getInstance().showToast("ADB连接中断，请尝试重新开启调试端口");
+                            if (con == null) {
+                                LauncherApplication.getInstance().showToast(StringUtil.getString(R.string.cmd__adb_break));
+                                return;
+                            }
+
+                            // 回首页
+                            LauncherApplication.getInstance().showDialog(con, StringUtil.getString(R.string.cmd__adb_break), StringUtil.getString(R.string.constant__sure), null);
+
+                            // 通知各个功能ADB挂了
+                            InjectorService.g().pushMessage(FATAL_ADB_CANNOT_RECOVER);
+
                             return;
                         }
-
-                        // 回首页
-                        LauncherApplication.getInstance().showDialog(con, "ADB连接中断，请尝试重新开启调试端口", "好的", null);
-
-                        // 通知各个功能ADB挂了
-                        InjectorService.g().pushMessage(FATAL_ADB_CANNOT_RECOVER);
-
-                        return;
                     }
                 }
 

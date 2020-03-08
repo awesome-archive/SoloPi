@@ -23,10 +23,10 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
 import android.provider.Settings;
 import android.view.WindowManager;
 
+import com.alipay.hulu.R;
 import com.alipay.hulu.bean.CaseStepHolder;
 import com.alipay.hulu.bean.ReplayResultBean;
 import com.alipay.hulu.common.application.LauncherApplication;
@@ -41,13 +41,10 @@ import com.alipay.hulu.common.utils.FileUtils;
 import com.alipay.hulu.common.utils.HuluCrashHandler;
 import com.alipay.hulu.common.utils.LogUtil;
 import com.alipay.hulu.common.utils.StringUtil;
-import com.alipay.hulu.event.AppForegroundEvent;
 import com.alipay.hulu.service.CaseReplayManager;
 import com.alipay.hulu.shared.io.db.GreenDaoManager;
 import com.alipay.hulu.util.LargeObjectHolder;
 import com.liulishuo.filedownloader.FileDownloader;
-
-import org.greenrobot.eventbus.EventBus;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -63,6 +60,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.TimeUnit;
+
+import cn.dreamtobe.filedownloader.OkHttp3Connection;
+import okhttp3.OkHttpClient;
 
 public class MyApplication extends LauncherApplication {
     private static final String TAG = "MyApplication";
@@ -168,7 +169,7 @@ public class MyApplication extends LauncherApplication {
                 lastTime = appInfo;
                 String app = content[1].split(":")[1].trim();
 
-                // 如果发现了葫芦娃或者目标应用的Anr信息
+                // 如果发现了SoloPi或者目标应用的Anr信息
                 if (StringUtil.equals(getInstance().appPackage, app) || StringUtil.equals(app, MyApplication.getInstance().getPackageName())) {
                     LogUtil.w(TAG, "Find anr info: " + app);
 
@@ -185,7 +186,7 @@ public class MyApplication extends LauncherApplication {
 
                     LogUtil.w(TAG, "Copy anr file result: " + result);
 
-                    MyApplication.getInstance().showToast("发现anr信息，已拷贝至: " + pathInShell);
+                    MyApplication.getInstance().showToast(getString(R.string.app__find_anr_info, pathInShell));
                 }
             }
         }
@@ -300,6 +301,21 @@ public class MyApplication extends LauncherApplication {
         return packageList;
     }
 
+    /**
+     * 获取应用列表
+     * @return
+     */
+    public void reloadAppList() {
+        BackgroundExecutor.execute(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (MyApplication.class) {
+                    loadApplicationList();
+                }
+            }
+        });
+    }
+
     private void registerLifecycleCallbacks() {
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override
@@ -310,9 +326,6 @@ public class MyApplication extends LauncherApplication {
             @Override
             public void onActivityStarted(Activity activity) {
                 activityCount++;
-                if (activityCount == 1) {
-                    EventBus.getDefault().post(new AppForegroundEvent(true));
-                }
             }
 
             @Override
@@ -328,9 +341,6 @@ public class MyApplication extends LauncherApplication {
             @Override
             public void onActivityStopped(Activity activity) {
                 activityCount--;
-                if (activityCount == 0) {
-                    EventBus.getDefault().post(new AppForegroundEvent(false));
-                }
             }
 
             @Override
@@ -343,6 +353,11 @@ public class MyApplication extends LauncherApplication {
 
             }
         });
+
+        // Init the FileDownloader with the OkHttp3Connection.Creator.
+        FileDownloader.setupOnApplicationOnCreate(this)
+                .connectionCreator(new OkHttp3Connection.Creator())
+                .commit();
     }
 
     /**
@@ -355,13 +370,16 @@ public class MyApplication extends LauncherApplication {
 
         List<ApplicationInfo> removedItems = new ArrayList<>();
 
+        String selfPackage = getPackageName();
+        boolean displaySystemApp = SPService.getBoolean(SPService.KEY_DISPLAY_SYSTEM_APP, false);
+
         for (ApplicationInfo pack: listPack) {
-            if ((pack.flags & ApplicationInfo.FLAG_SYSTEM) > 0) {
+            if (!displaySystemApp && (pack.flags & ApplicationInfo.FLAG_SYSTEM) > 0) {
                 removedItems.add(pack);
             }
 
             // 移除自身
-            if (StringUtil.equals(getPackageName(), pack.packageName)) {
+            if (StringUtil.equals(selfPackage, pack.packageName)) {
                 removedItems.add(pack);
             }
         }
@@ -415,7 +433,7 @@ public class MyApplication extends LauncherApplication {
                 this.appName = appName[0];
             } else {
                 this.appPackage = "-";
-                this.appName = "全局";
+                this.appName = getString(R.string.constant_global);
             }
         }
         injectorService.pushMessage(SubscribeParamEnum.APP, appPackage, true);
@@ -463,7 +481,7 @@ public class MyApplication extends LauncherApplication {
                 this.appName = appName[0];
             } else {
                 this.appPackage = "-";
-                this.appName = "全局";
+                this.appName = getString(R.string.constant_global);
             }
         }
 
@@ -508,6 +526,10 @@ public class MyApplication extends LauncherApplication {
 
     private void initGreenDao() {
         GreenDaoManager.getInstance();
+    }
+
+    public void updateDefaultIme(String ime) {
+        curSysInputMethod = ime;
     }
 
     public static MyApplication getInstance() {

@@ -15,10 +15,19 @@
  */
 package com.alipay.hulu.activity;
 
+import android.annotation.TargetApi;
 import android.app.ProgressDialog;
 import android.content.Context;
+import android.content.res.Configuration;
+import android.content.res.Resources;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.LocaleList;
+import android.support.annotation.IdRes;
 import android.support.annotation.Nullable;
+import android.support.annotation.StringRes;
+import android.support.v4.app.Fragment;
+import android.support.v4.app.FragmentManager;
 import android.support.v7.app.AppCompatActivity;
 import android.text.TextUtils;
 import android.view.View;
@@ -27,8 +36,13 @@ import android.widget.Toast;
 
 import com.alipay.hulu.R;
 import com.alipay.hulu.common.application.LauncherApplication;
+import com.alipay.hulu.common.service.SPService;
 import com.alipay.hulu.common.utils.DeviceInfoUtil;
 import com.alipay.hulu.common.utils.LogUtil;
+
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * Created by lezhou.wyl on 2018/1/28.
@@ -38,6 +52,8 @@ public abstract class BaseActivity extends AppCompatActivity {
     private static boolean initializeScreenInfo = false;
 
     private boolean canShowDialog;
+
+    private Set<String> fragmentTags = new HashSet<>();
 
     private static Toast toast;
 
@@ -52,7 +68,7 @@ public abstract class BaseActivity extends AppCompatActivity {
             // 主线程等待
             LauncherApplication.getInstance().prepareInMain();
 
-            LogUtil.w("BaseActivity", "Activity: %s, 等待Launcher初始化耗时: %dms", getClass().getSimpleName(), System.currentTimeMillis() - startTime);
+            LogUtil.w("BaseActivity", "Activity: %s, waiting launcher to initialize: %dms", getClass().getSimpleName(), System.currentTimeMillis() - startTime);
         }
 
         // 为了正常初始化
@@ -64,6 +80,25 @@ public abstract class BaseActivity extends AppCompatActivity {
             getScreenSizeInfo();
             initializeScreenInfo = true;
         }
+    }
+
+    @Override
+    protected void attachBaseContext(Context newBase) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            newBase = updateResources(newBase);
+        }
+        super.attachBaseContext(newBase);
+    }
+
+    @TargetApi(Build.VERSION_CODES.N)
+    private static Context updateResources(Context context) {
+        Resources resources = context.getResources();
+        Locale locale = LauncherApplication.getInstance().getLanguageLocale();
+
+        Configuration configuration = resources.getConfiguration();
+        configuration.setLocale(locale);
+        configuration.setLocales(new LocaleList(locale));
+        return context.createConfigurationContext(configuration);
     }
 
     @Override
@@ -110,6 +145,22 @@ public abstract class BaseActivity extends AppCompatActivity {
     }
 
     /**
+     * 短toast
+     * @param stringRes
+     */
+    public void toastShort(@StringRes final int stringRes) {
+        toastShort(getString(stringRes));
+    }
+
+    /**
+     * 短toast
+     * @param stringRes
+     */
+    public void toastShort(@StringRes final int stringRes, final Object... args) {
+        toastShort(getString(stringRes, args));
+    }
+
+    /**
      * toast短时间提示
      *
      * @param msg
@@ -122,7 +173,7 @@ public abstract class BaseActivity extends AppCompatActivity {
             @Override
             public void run() {
                 if (toast == null) {
-                    toast = Toast.makeText(MyApplication.getContext(), msg, Toast.LENGTH_SHORT);
+                    toast = Toast.makeText(LauncherApplication.getInstance(), msg, Toast.LENGTH_SHORT);
                 } else {
                     toast.setText(msg);
                 }
@@ -134,6 +185,22 @@ public abstract class BaseActivity extends AppCompatActivity {
     public void toastShort(String msg, Object... args) {
         String formatMsg = String.format(msg, args);
         toastShort(formatMsg);
+    }
+
+    /**
+     * 短toast
+     * @param stringRes
+     */
+    public void toastLong(@StringRes final int stringRes) {
+        toastLong(getString(stringRes));
+    }
+
+    /**
+     * 短toast
+     * @param stringRes
+     */
+    public void toastLong(@StringRes final int stringRes, final Object... args) {
+        toastLong(getString(stringRes, args));
     }
 
     /**
@@ -149,18 +216,13 @@ public abstract class BaseActivity extends AppCompatActivity {
             @Override
             public void run() {
                 if (toast == null) {
-                    toast = Toast.makeText(MyApplication.getContext(), msg, Toast.LENGTH_LONG);
+                    toast = Toast.makeText(LauncherApplication.getInstance(), msg, Toast.LENGTH_LONG);
                 } else {
                     toast.setText(msg);
                 }
                 toast.show();
             }
         });
-    }
-
-    public void toastLong(String msg, Object... args) {
-        String formatMsg = String.format(msg, args);
-        toastLong(formatMsg);
     }
 
     public void showProgressDialog(final String str) {
@@ -184,7 +246,7 @@ public abstract class BaseActivity extends AppCompatActivity {
     public void dismissProgressDialog() {
         runOnUiThread(new Runnable() {
             public void run() {
-                if (progressDialog != null) {
+                if (progressDialog != null && progressDialog.isShowing()) {
                     progressDialog.dismiss();
                 }
             }
@@ -211,5 +273,35 @@ public abstract class BaseActivity extends AppCompatActivity {
         getWindowManager().getDefaultDisplay().getRealSize(DeviceInfoUtil.realScreenSize);
         getWindowManager().getDefaultDisplay().getSize(DeviceInfoUtil.curScreenSize);
         getWindowManager().getDefaultDisplay().getMetrics(DeviceInfoUtil.metrics);
+    }
+
+    /**
+     * 添加Fragment tag信息
+     * @param tag
+     */
+    public void addFragmentTag(String tag) {
+        fragmentTags.add(tag);
+    }
+
+    public Set<String> getAllFragmentTags() {
+        return new HashSet<>(fragmentTags);
+    }
+
+    /**
+     * 根据tag查找fragment
+     * @param tag
+     * @return
+     */
+    public Fragment getFragmentByTag(String tag) {
+        FragmentManager supported = getSupportFragmentManager();
+        if (supported != null) {
+            return supported.findFragmentByTag(tag);
+        }
+
+        return null;
+    }
+
+    protected   <T extends View> T _findViewById(@IdRes int resId) {
+        return (T) findViewById(resId);
     }
 }

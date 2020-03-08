@@ -15,14 +15,19 @@
  */
 package com.alipay.hulu.upgrade;
 
+import android.app.Activity;
 import android.util.Pair;
 
+import com.alipay.hulu.R;
+import com.alipay.hulu.activity.BaseActivity;
+import com.alipay.hulu.common.application.LauncherApplication;
 import com.alipay.hulu.common.service.SPService;
 import com.alipay.hulu.common.tools.BackgroundExecutor;
 import com.alipay.hulu.common.utils.ClassUtil;
 import com.alipay.hulu.common.utils.DeviceInfoUtil;
 import com.alipay.hulu.common.utils.HttpUtil;
 import com.alipay.hulu.common.utils.LogUtil;
+import com.alipay.hulu.common.utils.MiscUtil;
 import com.alipay.hulu.common.utils.PatchProcessUtil;
 import com.alipay.hulu.common.utils.StringUtil;
 import com.alipay.hulu.common.utils.patch.PatchLoadResult;
@@ -31,8 +36,11 @@ import com.alipay.hulu.shared.node.utils.AssetsManager;
 import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import okhttp3.Call;
 
@@ -58,7 +66,7 @@ public class PatchRequest {
     /**
      * 更新Patch列表
      */
-    public static void updatePatchList() {
+    public static void updatePatchList(final BaseActivity activity) {
         String storedUrl = SPService.getString(SPService.KEY_PATCH_URL, "https://raw.githubusercontent.com/alipay/SoloPi/master/<abi>.json");
         // 地址为空
         if (StringUtil.isEmpty(storedUrl)) {
@@ -67,7 +75,7 @@ public class PatchRequest {
         }
 
         // 替换ABI参数
-        String realUrl = StringUtil.patternReplace(storedUrl, "<abi>", DeviceInfoUtil.getCPUABI());
+        String realUrl = StringUtil.patternReplace(storedUrl, "<abi>", filterAcceptAbi(DeviceInfoUtil.getCPUABI()));
 
         LogUtil.i(TAG, "Start request patch list on: " + realUrl);
 
@@ -81,6 +89,9 @@ public class PatchRequest {
             @Override
             public void onFailure(Call call, IOException e) {
                 LogUtil.e(TAG, "抛出IO异常，" + e.getMessage(), e);
+                if (activity != null) {
+                    activity.toastLong(activity.getString(R.string.constant__plugin_load_fail) + e.getMessage());
+                }
             }
         });
     }
@@ -101,6 +112,8 @@ public class PatchRequest {
             return;
         }
 
+        final AtomicInteger loadingCount = new AtomicInteger(0);
+
         Map<String, Pair<Float, String>> patchMap = new HashMap<>();
         for (final PatchResponse.DataBean data : patches) {
 
@@ -118,6 +131,7 @@ public class PatchRequest {
                 if (result != null && result.version < data.getVersion()) {
                     LogUtil.i(TAG, "强制升级插件： %s, 版本号from %f to %f", data.getName(),
                             result.version, data.getVersion());
+                    loadingCount.incrementAndGet();
                     BackgroundExecutor.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -127,6 +141,8 @@ public class PatchRequest {
                             // 下载失败
                             if (f == null) {
                                 LogUtil.e(TAG, "下载插件失败");
+                                LauncherApplication.getInstance().showToast(StringUtil.getString(R.string.patch__load_failed, data.getName()));
+                                loadingCount.decrementAndGet();
                                 return;
                             }
                             try {
@@ -137,6 +153,7 @@ public class PatchRequest {
                             } catch (Throwable e) {
                                 LogUtil.e(TAG, "更新插件异常", e);
                             }
+                            loadingCount.decrementAndGet();
                         }
                     });
                 }
@@ -148,6 +165,7 @@ public class PatchRequest {
                 if (result == null || result.version < data.getVersion()) {
                     LogUtil.i(TAG, "安装基础依赖插件： %s, 版本号：%f", data.getName(),
                             data.getVersion());
+                    loadingCount.incrementAndGet();
                     BackgroundExecutor.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -157,6 +175,7 @@ public class PatchRequest {
                             // 下载失败
                             if (f == null) {
                                 LogUtil.e(TAG, "下载插件失败");
+                                loadingCount.decrementAndGet();
                                 return;
                             }
                             try {
@@ -167,6 +186,7 @@ public class PatchRequest {
                             } catch (Throwable e) {
                                 LogUtil.e(TAG, "更新插件异常", e);
                             }
+                            loadingCount.decrementAndGet();
                         }
                     });
                 }
@@ -174,7 +194,43 @@ public class PatchRequest {
 
         }
 
+        if (loadingCount.get() > 0) {
+            final BaseActivity activity = (BaseActivity) LauncherApplication.getInstance().loadActivityOnTop();
+            if (activity != null) {
+                activity.showProgressDialog(StringUtil.getString(R.string.patch__loading_plugin_wait));
+                BackgroundExecutor.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        while (!loadingCount.compareAndSet(0, 0)) {
+                            MiscUtil.sleep(5);
+                        }
+                        activity.dismissProgressDialog();
+                    }
+                });
+            }
+        }
+
         // 更新本地插件版本
         ClassUtil.updateAvailablePatches(patchMap);
+    }
+
+    private static final Set<String> ACCEPT_ABI = new HashSet<String>() {
+        {
+            add("armeabi");
+            add("armeabi-v7a");
+            add("arm64-v8a");
+        }
+    };
+
+    /**
+     * 过滤可用ABI
+     * @param abi
+     * @return
+     */
+    private static String filterAcceptAbi(String abi) {
+        if (ACCEPT_ABI.contains(abi)) {
+            return abi;
+        }
+        return "armeabi-v7a";
     }
 }

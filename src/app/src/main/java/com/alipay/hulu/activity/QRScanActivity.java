@@ -16,8 +16,10 @@
 package com.alipay.hulu.activity;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.PointF;
+import android.net.Uri;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.design.widget.Snackbar;
@@ -31,6 +33,7 @@ import com.alipay.hulu.common.application.LauncherApplication;
 import com.alipay.hulu.common.injector.InjectorService;
 import com.alipay.hulu.common.injector.provider.Param;
 import com.alipay.hulu.common.injector.provider.Provider;
+import com.alipay.hulu.common.scheme.SchemeActivity;
 import com.alipay.hulu.common.utils.LogUtil;
 import com.alipay.hulu.common.utils.StringUtil;
 import com.alipay.hulu.event.HandlePermissionEvent;
@@ -144,11 +147,13 @@ public class QRScanActivity extends BaseActivity
         disableQRCodeReadListener();
 
         if (StringUtil.isEmpty(text)) {
+            enableQRCodeReadListener();
             return;
         }
 
         long curTime = System.currentTimeMillis();
         if (curTime - lastReadTime < 2000) {
+            enableQRCodeReadListener();
             return;
         }
 
@@ -156,6 +161,28 @@ public class QRScanActivity extends BaseActivity
 
         if (curScanType == ScanSuccessEvent.SCAN_TYPE_SCHEME) {
             notifyScanSuccess(text);
+        } else if (curScanType == ScanSuccessEvent.SCAN_TYPE_PARAM) {
+            if (StringUtil.startWith(text, "http://") || StringUtil.startWith(text, "https://")) {
+                notifyScanSuccess(text);
+            } else {
+                resultTextView.setText(getString(R.string.qr_scan__url_not_support, text));
+                enableQRCodeReadListener();
+            }
+        } else {
+            resultTextView.setText(text);
+            if (StringUtil.startWith(text, "http")) {
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setData(Uri.parse(text));
+                startActivity(intent);
+                finish();
+            } else if (StringUtil.startWith(text, "solopi://")) {
+                Intent intent = new Intent(this, SchemeActivity.class);
+                intent.setData(Uri.parse(text));
+                startActivity(intent);
+                finish();
+            } else {
+                enableQRCodeReadListener();
+            }
         }
     }
 
@@ -182,8 +209,8 @@ public class QRScanActivity extends BaseActivity
 
     private void requestCameraPermission() {
         if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA)) {
-            Snackbar.make(mainLayout, "Soloπ需要权限来展示相机预览",
-                    Snackbar.LENGTH_INDEFINITE).setAction("好的", new View.OnClickListener() {
+            Snackbar.make(mainLayout, R.string.qr__camera_permission,
+                    Snackbar.LENGTH_INDEFINITE).setAction(R.string.constant__yes, new View.OnClickListener() {
                 @Override
                 public void onClick(View view) {
                     ActivityCompat.requestPermissions(QRScanActivity.this, new String[]{
@@ -192,7 +219,7 @@ public class QRScanActivity extends BaseActivity
                 }
             }).show();
         } else {
-            Snackbar.make(mainLayout, "未获得权限，正在申请相机权限",
+            Snackbar.make(mainLayout, R.string.qr__requst_permission,
                     Snackbar.LENGTH_SHORT).show();
             ActivityCompat.requestPermissions(this, new String[]{
                     Manifest.permission.CAMERA
